@@ -3,6 +3,6 @@
 
 The workhorse is the `BoostedOrdinal` class, which conforms to `scikit-learn` conventions, including implementation of `fit`, `predict` and `predict_proba` methods. This allows for easy wrapping of the learner in hyperparameter tuning facilities provided in scikit-learn such as `GridSearchCV`.
 
-- (add link to tutorial notebook)
+- [Tutorial](https://github.com/asmahani/ordinal-boost/blob/main/notebooks/tutorial.ipynb) for how to use the package, including creating a composite learner for automated grid search and randomized search hyper-parameter tuning.
 - (add link to arxiv paper)
 
