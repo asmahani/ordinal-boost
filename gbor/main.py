@@ -40,7 +40,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         
         return (BoostedOrdinal._loss_function(X, y, g, thresh_f) < BoostedOrdinal._loss_function(X, y, g, thresh_i)) and (np.all(np.diff(thresh_f) > 0))
     
-    def _update_thresh_dev(thresh, dthresh, lr, X, y, g, frac = 0.5):
+    def _update_thresh(thresh, dthresh, lr, X, y, g, frac = 0.5):
         this_accept = BoostedOrdinal._try_thresh(thresh, thresh - lr * dthresh, X, y, g)
         if this_accept:
             # keep doubling till reject
@@ -102,8 +102,8 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
             
             # update threshold vector
             dtheta = BoostedOrdinal._derivative_threshold(X, ylist, theta, g)
-            #theta = BoostedOrdinal._update_thresh(theta, dtheta, lr = lr_theta)
-            theta, lr_theta = BoostedOrdinal._update_thresh_dev(theta, dtheta, lr_theta, X, y, g, frac = 0.5)
+            #theta = BoostedOrdinal._update_thresh_naive(theta, dtheta, lr = lr_theta)
+            theta, lr_theta = BoostedOrdinal._update_thresh(theta, dtheta, lr_theta, X, y, g, frac = 0.5)
 
             # update loss
             loss = BoostedOrdinal._loss_function(X, y, g, theta)
@@ -272,7 +272,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         return g + lr * h
     
     # we need to check if updated thresh is valid (must be sorted) and handle invalid ones
-    def _update_thresh(thresh, dthresh, lr = 1e-3):
+    def _update_thresh_naive(thresh, dthresh, lr = 1e-3):
         new_thresh = thresh - lr * dthresh
         if not np.all(np.diff(new_thresh) > 0):
             raise ValueError("updated threshold vector invalid (must have strict ascending order)")
