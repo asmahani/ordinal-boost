@@ -5,12 +5,7 @@ from scipy.stats import norm
 from sklearn.utils import check_X_y, check_array
 from sklearn.base import clone
 from sklearn.model_selection import train_test_split
-from enum import Enum
-
-class LineSearchState(Enum):
-    IS_FIRST = 1
-    WAS_DOUBLED = 2
-    WAS_HALVED = 3
+import warnings
 
 class BoostedOrdinal(BaseEstimator, ClassifierMixin):
     
@@ -35,39 +30,30 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         self.validation_stratify = validation_stratify
 
     def _try_thresh(thresh_i, thresh_f, X, y, g):
+        #try:
+        with warnings.catch_warnings(record=True) as w:
+            f_f = BoostedOrdinal._loss_function(X, y, g, thresh_f)
+        if w:
+            return False
+        #except:
+        #    return False
+        
         return (BoostedOrdinal._loss_function(X, y, g, thresh_f) < BoostedOrdinal._loss_function(X, y, g, thresh_i)) and (np.all(np.diff(thresh_f) > 0))
     
-    def _update_thresh_dev(thresh, dthresh, lr, X, y, g):
-        this_state = LineSearchState.IS_FIRST
-        this_accept = BoostedOrdinal._try_thresh(thresh, thresh -lr * dthresh, X, y, g)
-        while True:
-            if this_state == LineSearchState.IS_FIRST:
-                if this_accept:
-                    lr_proposed = 2.0 * lr
-                    this_state = LineSearchState.WAS_DOUBLED
-                else:
-                    lr_proposed = 0.5 * lr
-                    this_state = LineSearchState.WAS_HALVED
-            else:
-                if (this_state == LineSearchState.WAS_DOUBLED) and this_accept:
-                    # state remains was_doubled
-                    lr = lr_proposed # update lr
-                    lr_proposed = 2 * lr # propose new lr by doubling
-                elif (this_state == LineSearchState.WAS_HALVED) and (not this_accept):
-                    # state remains was_halved
-                    lr = lr_proposed # update lr
-                    lr_proposed = 0.5 * lr # propose new lr by halving
-                elif (this_state == LineSearchState.WAS_DOUBLED) and (not this_accept):
-                    # don't update lr, break
-                    break
-                elif (this_state == LineSearchState.WAS_HALVED) and this_accept:
-                    # update lr and break
-                    lr = lr_proposed
-                    break
-                else:
-                    raise Exception('We should not have logically reached this branch!!!')
-            
-            this_accept = BoostedOrdinal._try_thresh(thresh - lr * dthresh, thresh -lr_proposed * dthresh, X, y, g)
+    def _update_thresh_dev(thresh, dthresh, lr, X, y, g, frac = 0.5):
+        this_accept = BoostedOrdinal._try_thresh(thresh, thresh - lr * dthresh, X, y, g)
+        if this_accept:
+            # keep doubling till reject
+            lr_proposed = lr
+            while this_accept:
+                lr = lr_proposed
+                lr_proposed = lr / frac
+                this_accept = BoostedOrdinal._try_thresh(thresh - lr * dthresh, thresh - lr_proposed * dthresh, X, y, g)
+        else:
+            # keep halving till accept
+            while not this_accept:
+                lr = lr * frac
+                this_accept = BoostedOrdinal._try_thresh(thresh, thresh - lr * dthresh, X, y, g)
 
         return (thresh - lr * dthresh, lr)
     
@@ -117,7 +103,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
             # update threshold vector
             dtheta = BoostedOrdinal._derivative_threshold(X, ylist, theta, g)
             #theta = BoostedOrdinal._update_thresh(theta, dtheta, lr = lr_theta)
-            theta, lr_theta = BoostedOrdinal._update_thresh_dev(theta, dtheta, lr_theta, X, y, g)
+            theta, lr_theta = BoostedOrdinal._update_thresh_dev(theta, dtheta, lr_theta, X, y, g, frac = 0.5)
 
             # update loss
             loss = BoostedOrdinal._loss_function(X, y, g, theta)
