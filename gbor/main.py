@@ -57,6 +57,33 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
 
         return (thresh - lr * dthresh, lr)
     
+    def _try_g(g_i, g_f, X, y, theta):
+        with warnings.catch_warnings(record=True) as w:
+            f_f = BoostedOrdinal._loss_function(X, y, g_f, theta)
+        if w:
+            return False
+        
+        return (BoostedOrdinal._loss_function(X, y, g_f, theta) < BoostedOrdinal._loss_function(X, y, g_i, theta))
+    
+    # conventions are different for theta and g, hence we subtract in theta and add in g (the learning rate term)
+    def _update_g_dev(regfun, dregfun, lr, X, y, theta, frac = 0.5):
+        this_accept = BoostedOrdinal._try_g(regfun, regfun + lr * dregfun, X, y, theta)
+        if this_accept:
+            # keep doubling till reject
+            lr_proposed = lr
+            while this_accept:
+                lr = lr_proposed
+                lr_proposed = lr / frac
+                this_accept = BoostedOrdinal._try_g(regfun + lr * dregfun, regfun + lr_proposed * dregfun, X, y, theta)
+        else:
+            # keep halving till accept
+            while not this_accept:
+                lr = lr * frac
+                this_accept = BoostedOrdinal._try_g(regfun, regfun + lr * dregfun, X, y, theta)
+
+        return (regfun + lr * dregfun, lr)
+        
+    
     def fit(self, X, y):
         X, y = check_X_y(X, y)
 
@@ -86,8 +113,12 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         theta_all.append(theta)
 
         no_change = False
+        
         lr_theta = self.lr_theta
         lr_theta_all = [lr_theta]
+        
+        #lr_g = self.lr_g
+        #lr_g_all = [lr_g]
 
         for p in range(self.max_iter):
             
@@ -95,6 +126,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
             dg = BoostedOrdinal._derivative_g(X, y, theta, g)
             weak_learner, h, intercept = BoostedOrdinal._fit_weak_learner(X, -dg, clone(self.base_learner))
             g = BoostedOrdinal._update_g(g, h, lr = self.lr_g)
+            #g, lr_g = BoostedOrdinal._update_g_dev(g, h, lr_g, X, y, theta, frac = 0.5)
             
             # update loss
             loss = BoostedOrdinal._loss_function(X, y, g, theta)
@@ -115,10 +147,12 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
             theta_all.append(theta)
 
             lr_theta_all.append(lr_theta)
+            #lr_g_all.append(lr_g)
 
             if self.n_iter_no_change:
                 h_holdout = weak_learner.predict(X_holdout) + intercept
                 g_holdout = BoostedOrdinal._update_g(g_holdout, h_holdout, lr = self.lr_g)
+                #g_holdout += lr_g * h_holdout
                 loss_holdout = BoostedOrdinal._loss_function(X_holdout, y_holdout, g_holdout, theta)
                 loss_all_holdout.append(loss_holdout)
                 if len(loss_all_holdout) > self.n_iter_no_change:
@@ -136,6 +170,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
             , 'learner': learner_all
             , 'intercept': np.array(intercept_all)
             , 'lr_theta': np.array(lr_theta_all)
+            #, 'lr_g': np.array(lr_g_all)
         }
         if self.n_iter_no_change:
             self.path['loss_holdout'] = np.array(loss_all_holdout)
