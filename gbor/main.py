@@ -16,6 +16,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         , validation_fraction = 0.1
         , n_iter_no_change = None
         , reltol = 1e-2
+        , validation_stratify = True
     ):
         self.base_learner = base_learner
         self.max_iter = max_iter
@@ -24,12 +25,13 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         self.validation_fraction = validation_fraction
         self.n_iter_no_change = n_iter_no_change
         self.reltol = reltol
+        self.validation_stratify = validation_stratify
 
     def fit(self, X, y):
         X, y = check_X_y(X, y)
 
         if self.n_iter_no_change:
-            X, X_holdout, y, y_holdout = train_test_split(X, y, test_size = self.validation_fraction)
+            X, X_holdout, y, y_holdout = train_test_split(X, y, test_size = self.validation_fraction, stratify = y if self.validation_stratify else None)
         
         ylist = BoostedOrdinal._validate_ordinal(y)
 
