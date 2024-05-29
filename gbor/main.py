@@ -5,8 +5,15 @@ from scipy.stats import norm
 from sklearn.utils import check_X_y, check_array
 from sklearn.base import clone
 from sklearn.model_selection import train_test_split
+from enum import Enum
+
+class LineSearchState(Enum):
+    IS_FIRST = 1
+    WAS_DOUBLED = 2
+    WAS_HALVED = 3
 
 class BoostedOrdinal(BaseEstimator, ClassifierMixin):
+    
     def __init__(
         self
         , base_learner = DecisionTreeRegressor()
@@ -27,6 +34,43 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         self.reltol = reltol
         self.validation_stratify = validation_stratify
 
+    def _try_thresh(thresh_i, thresh_f, X, y, g):
+        return (BoostedOrdinal._loss_function(X, y, g, thresh_f) < BoostedOrdinal._loss_function(X, y, g, thresh_i)) and (np.all(np.diff(thresh_f) > 0))
+    
+    def _update_thresh_dev(thresh, dthresh, lr, X, y, g):
+        this_state = LineSearchState.IS_FIRST
+        this_accept = BoostedOrdinal._try_thresh(thresh, thresh -lr * dthresh, X, y, g)
+        while True:
+            if this_state == LineSearchState.IS_FIRST:
+                if this_accept:
+                    lr_proposed = 2.0 * lr
+                    this_state = LineSearchState.WAS_DOUBLED
+                else:
+                    lr_proposed = 0.5 * lr
+                    this_state = LineSearchState.WAS_HALVED
+            else:
+                if (this_state == LineSearchState.WAS_DOUBLED) and this_accept:
+                    # state remains was_doubled
+                    lr = lr_proposed # update lr
+                    lr_proposed = 2 * lr # propose new lr by doubling
+                elif (this_state == LineSearchState.WAS_HALVED) and (not this_accept):
+                    # state remains was_halved
+                    lr = lr_proposed # update lr
+                    lr_proposed = 0.5 * lr # propose new lr by halving
+                elif (this_state == LineSearchState.WAS_DOUBLED) and (not this_accept):
+                    # don't update lr, break
+                    break
+                elif (this_state == LineSearchState.WAS_HALVED) and this_accept:
+                    # update lr and break
+                    lr = lr_proposed
+                    break
+                else:
+                    raise Exception('We should not have logically reached this branch!!!')
+            
+            this_accept = BoostedOrdinal._try_thresh(thresh - lr * dthresh, thresh -lr_proposed * dthresh, X, y, g)
+
+        return (thresh - lr * dthresh, lr)
+    
     def fit(self, X, y):
         X, y = check_X_y(X, y)
 
@@ -56,6 +100,8 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         theta_all.append(theta)
 
         no_change = False
+        lr_theta = self.lr_theta
+        lr_theta_all = [lr_theta]
 
         for p in range(self.max_iter):
             
@@ -70,7 +116,8 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
             
             # update threshold vector
             dtheta = BoostedOrdinal._derivative_threshold(X, ylist, theta, g)
-            theta = BoostedOrdinal._update_thresh(theta, dtheta, lr = self.lr_theta)
+            #theta = BoostedOrdinal._update_thresh(theta, dtheta, lr = lr_theta)
+            theta, lr_theta = BoostedOrdinal._update_thresh_dev(theta, dtheta, lr_theta, X, y, g)
 
             # update loss
             loss = BoostedOrdinal._loss_function(X, y, g, theta)
@@ -80,6 +127,8 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
             intercept_all.append(intercept)
             g_all.append(g)
             theta_all.append(theta)
+
+            lr_theta_all.append(lr_theta)
 
             if self.n_iter_no_change:
                 h_holdout = weak_learner.predict(X_holdout) + intercept
@@ -95,8 +144,12 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         self.init = {'g': g_init, 'theta': theta_init, 'loss': loss_init}
         self.final = {'g': g, 'theta': theta, 'loss': loss_all[-1]}
         self.path = {
-            'g': np.array(g_all), 'theta': np.array(theta_all), 'loss': np.array(loss_all)
-            , 'learner': learner_all, 'intercept': np.array(intercept_all)
+            'g': np.array(g_all)
+            , 'theta': np.array(theta_all)
+            , 'loss': np.array(loss_all)
+            , 'learner': learner_all
+            , 'intercept': np.array(intercept_all)
+            , 'lr_theta': np.array(lr_theta_all)
         }
         if self.n_iter_no_change:
             self.path['loss_holdout'] = np.array(loss_all_holdout)
@@ -201,7 +254,8 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
     def _pad_thresholds(theta):
         return np.insert(theta, [0, theta.size], [-np.inf, np.inf])
     
-    def _derivative_threshold(X, ylist, thresh, g):
+    def _derivative_threshold(X, ylist, thresh, g, return_mean = False):
+        # added return_mean but not tested yet, intended to make the gradient signal insensitive to data size
         thresh_padded = BoostedOrdinal._pad_thresholds(thresh)
         M = len(thresh)
         ret = []
@@ -210,7 +264,10 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
             S_mp1 = ylist[m+1]
             v1 = np.sum(norm.pdf(thresh_padded[m+1] - g[S_m]) / (norm.cdf(thresh_padded[m+1] - g[S_m]) - norm.cdf(thresh_padded[m] - g[S_m])))
             v2 = np.sum(norm.pdf(thresh_padded[m+1] - g[S_mp1]) / (norm.cdf(thresh_padded[m+2] - g[S_mp1]) - norm.cdf(thresh_padded[m+1] - g[S_mp1])))
-            ret.append(-v1 + v2)
+            tmp = -v1 + v2
+            if return_mean:
+                tmp = tmp / X.shape[0]
+            ret.append(tmp)
         return np.array(ret)
 
     def _derivative_g(X, y, thresh, g):
@@ -231,7 +288,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
     # we need to check if updated thresh is valid (must be sorted) and handle invalid ones
     def _update_thresh(thresh, dthresh, lr = 1e-3):
         new_thresh = thresh - lr * dthresh
-        if not np.all(np.diff(new_thresh)):
+        if not np.all(np.diff(new_thresh) > 0):
             raise ValueError("updated threshold vector invalid (must have strict ascending order)")
         return new_thresh
     
