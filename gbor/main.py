@@ -8,6 +8,48 @@ from sklearn.model_selection import train_test_split
 import warnings
 
 class BoostedOrdinal(BaseEstimator, ClassifierMixin):
+    """
+    Ordinal Regression using Gradient Boosting
+
+    This class implements a mathematical framework for adapting machine learning (ML) regression models to handle ordinal response variables.
+
+    Parameters
+    ----------
+    base_learner : estimator object, default=DecisionTreeRegressor()
+        The base estimator used as weak learner in a gradient boosting context.
+        
+    max_iter : int, default=100
+        The maximum number of boosting iterations to perform.
+        
+    lr_g : float, default=1e-1
+        Learning rate - or shirnkage factor - applied to predictions of base learners.
+        
+    lr_theta : float, default=1e-3
+        Starting value for the learning rate for the threshold updates. This parameter is auto-tuned during model training.
+        
+    validation_fraction : float, default=0.1
+        The proportion of training data to set aside as validation set for early stopping.
+        
+    n_iter_no_change : int or None, default=None
+        Number of iterations with no improvement to wait before stopping early.
+        
+    reltol : float, default=1e-2
+        Relative tolerance to determine if early stopping is triggered.
+        
+    validation_stratify : bool, default=True
+        Whether to stratify the validation set.
+
+    Methods
+    -------
+    fit(X, y)
+        Fit the BoostedOrdinal model according to the given training data.
+        
+    predict(X, y=None, path=False, class_labels=True)
+        Predict ordinal class labels for the given data.
+        
+    predict_proba(X)
+        Predict class probabilities for the given data.
+    """    
     
     def __init__(
         self
@@ -85,6 +127,22 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         
     
     def fit(self, X, y):
+        """
+        Fit the BoostedOrdinal model according to the given training data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+            
+        y : array-like of shape (n_samples,)
+            The target values (class labels) as integers. Must be 0, 1, ..., M-1 where, M is the number of ordinal classes.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
         X, y = check_X_y(X, y)
 
         if self.n_iter_no_change:
@@ -178,6 +236,29 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         return self
     
     def predict(self, X, y = None, path = False, class_labels = True):
+        """
+        Predict ordinal class labels for the given data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+            
+        y : array-like of shape (n_samples,), optional
+            The true labels for X. If provided, log-likleihood of data is also returned
+            
+        path : bool, default=False
+            If True, returns the prediction path (step-by-step predictions from all boosting iterations).
+            
+        class_labels : bool, default=True
+            If True, returns the predicted class labels.
+            If False, returns the predicted probabilities.
+
+        Returns
+        -------
+        array-like
+            Predicted class labels or probabilities for the input data. However, 1) if y is provided, a tuple is returned, with the second element being the log-liklihood of the data; 2) if 'path' is set to True, a list of such objects is returned.
+        """
         check_array(X)
         arr = np.array([learner.predict(X) + self.path['intercept'][p] for p, learner in enumerate(self.path['learner'])])
         if path:
@@ -206,7 +287,20 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
                 return tmp
 
     def predict_proba(self, X):
-        return self.predict(X, class_labels = False)
+        """
+        Predict class probabilities for the given data. This calls the predict method, with y set to None, path set to False, and class_labels set to False.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        array-like of shape (n_samples, n_classes)
+            Predicted class probabilities for the input data.
+        """
+        return self.predict(X, y = None, path = False, class_labels = False)
 
     def _class_labels(probs, axis = 1):
         return np.argmax(probs, axis = axis)
