@@ -6,6 +6,7 @@ from sklearn.utils import check_X_y, check_array
 from sklearn.base import clone
 from sklearn.model_selection import train_test_split
 import warnings
+import matplotlib.pyplot as plt
 
 class BoostedOrdinal(BaseEstimator, ClassifierMixin):
     """
@@ -71,61 +72,6 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         self.reltol = reltol
         self.validation_stratify = validation_stratify
 
-    def _try_thresh(thresh_i, thresh_f, X, y, g):
-        #try:
-        with warnings.catch_warnings(record=True) as w:
-            f_f = BoostedOrdinal._loss_function(X, y, g, thresh_f)
-        if w:
-            return False
-        #except:
-        #    return False
-        
-        return (BoostedOrdinal._loss_function(X, y, g, thresh_f) < BoostedOrdinal._loss_function(X, y, g, thresh_i)) and (np.all(np.diff(thresh_f) > 0))
-    
-    def _update_thresh(thresh, dthresh, lr, X, y, g, frac = 0.5):
-        this_accept = BoostedOrdinal._try_thresh(thresh, thresh - lr * dthresh, X, y, g)
-        if this_accept:
-            # keep doubling till reject
-            lr_proposed = lr
-            while this_accept:
-                lr = lr_proposed
-                lr_proposed = lr / frac
-                this_accept = BoostedOrdinal._try_thresh(thresh - lr * dthresh, thresh - lr_proposed * dthresh, X, y, g)
-        else:
-            # keep halving till accept
-            while not this_accept:
-                lr = lr * frac
-                this_accept = BoostedOrdinal._try_thresh(thresh, thresh - lr * dthresh, X, y, g)
-
-        return (thresh - lr * dthresh, lr)
-    
-    def _try_g(g_i, g_f, X, y, theta):
-        with warnings.catch_warnings(record=True) as w:
-            f_f = BoostedOrdinal._loss_function(X, y, g_f, theta)
-        if w:
-            return False
-        
-        return (BoostedOrdinal._loss_function(X, y, g_f, theta) < BoostedOrdinal._loss_function(X, y, g_i, theta))
-    
-    # conventions are different for theta and g, hence we subtract in theta and add in g (the learning rate term)
-    def _update_g_dev(regfun, dregfun, lr, X, y, theta, frac = 0.5):
-        this_accept = BoostedOrdinal._try_g(regfun, regfun + lr * dregfun, X, y, theta)
-        if this_accept:
-            # keep doubling till reject
-            lr_proposed = lr
-            while this_accept:
-                lr = lr_proposed
-                lr_proposed = lr / frac
-                this_accept = BoostedOrdinal._try_g(regfun + lr * dregfun, regfun + lr_proposed * dregfun, X, y, theta)
-        else:
-            # keep halving till accept
-            while not this_accept:
-                lr = lr * frac
-                this_accept = BoostedOrdinal._try_g(regfun, regfun + lr * dregfun, X, y, theta)
-
-        return (regfun + lr * dregfun, lr)
-        
-    
     def fit(self, X, y):
         """
         Fit the BoostedOrdinal model according to the given training data.
@@ -224,14 +170,14 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         self.path = {
             'g': np.array(g_all)
             , 'theta': np.array(theta_all)
-            , 'loss': np.array(loss_all)
+            , 'loss': np.array(loss_all) / X.shape[0]
             , 'learner': learner_all
             , 'intercept': np.array(intercept_all)
             , 'lr_theta': np.array(lr_theta_all)
             #, 'lr_g': np.array(lr_g_all)
         }
         if self.n_iter_no_change:
-            self.path['loss_holdout'] = np.array(loss_all_holdout)
+            self.path['loss_holdout'] = np.array(loss_all_holdout) / X_holdout.shape[0]
         
         return self
     
@@ -302,6 +248,90 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         """
         return self.predict(X, y = None, path = False, class_labels = False)
 
+    def plot_cross_entropy_loss(self):
+        cross_entropy_train, cross_entropy_validation = self.path['loss'][::2] , self.path['loss_holdout']
+        
+        indices = np.arange(len(cross_entropy_train))
+        
+        # Create the plot
+        plt.figure(figsize=(10, 5))
+        
+        # Plot the first array
+        plt.plot(indices, cross_entropy_train, label='Training set')#, marker='o')
+        
+        # Plot the second array
+        plt.plot(indices, cross_entropy_validation, label='Validation set')#, marker='x')
+        
+        # Add labels and title
+        plt.xlabel('Iteration No')
+        plt.ylabel('Cross-entropy')
+        plt.title('Training vs. Validation Cross-entropy Loss')
+
+        # add vertical line to indicate selected number of iterations
+        plt.axvline(x = self.n_iter, color = 'r', label = 'Number of Iterations Seleced', linestyle = 'dashed')
+        
+        plt.legend()
+        
+        # Show the plot
+        plt.show()
+
+        pass
+        
+    
+    def _try_thresh(thresh_i, thresh_f, X, y, g):
+        #try:
+        with warnings.catch_warnings(record=True) as w:
+            f_f = BoostedOrdinal._loss_function(X, y, g, thresh_f)
+        if w:
+            return False
+        #except:
+        #    return False
+        
+        return (BoostedOrdinal._loss_function(X, y, g, thresh_f) < BoostedOrdinal._loss_function(X, y, g, thresh_i)) and (np.all(np.diff(thresh_f) > 0))
+    
+    def _update_thresh(thresh, dthresh, lr, X, y, g, frac = 0.5):
+        this_accept = BoostedOrdinal._try_thresh(thresh, thresh - lr * dthresh, X, y, g)
+        if this_accept:
+            # keep doubling till reject
+            lr_proposed = lr
+            while this_accept:
+                lr = lr_proposed
+                lr_proposed = lr / frac
+                this_accept = BoostedOrdinal._try_thresh(thresh - lr * dthresh, thresh - lr_proposed * dthresh, X, y, g)
+        else:
+            # keep halving till accept
+            while not this_accept:
+                lr = lr * frac
+                this_accept = BoostedOrdinal._try_thresh(thresh, thresh - lr * dthresh, X, y, g)
+
+        return (thresh - lr * dthresh, lr)
+    
+    def _try_g(g_i, g_f, X, y, theta):
+        with warnings.catch_warnings(record=True) as w:
+            f_f = BoostedOrdinal._loss_function(X, y, g_f, theta)
+        if w:
+            return False
+        
+        return (BoostedOrdinal._loss_function(X, y, g_f, theta) < BoostedOrdinal._loss_function(X, y, g_i, theta))
+    
+    # conventions are different for theta and g, hence we subtract in theta and add in g (the learning rate term)
+    def _update_g_dev(regfun, dregfun, lr, X, y, theta, frac = 0.5):
+        this_accept = BoostedOrdinal._try_g(regfun, regfun + lr * dregfun, X, y, theta)
+        if this_accept:
+            # keep doubling till reject
+            lr_proposed = lr
+            while this_accept:
+                lr = lr_proposed
+                lr_proposed = lr / frac
+                this_accept = BoostedOrdinal._try_g(regfun + lr * dregfun, regfun + lr_proposed * dregfun, X, y, theta)
+        else:
+            # keep halving till accept
+            while not this_accept:
+                lr = lr * frac
+                this_accept = BoostedOrdinal._try_g(regfun, regfun + lr * dregfun, X, y, theta)
+
+        return (regfun + lr * dregfun, lr)
+        
     def _class_labels(probs, axis = 1):
         return np.argmax(probs, axis = axis)
     
