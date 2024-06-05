@@ -389,11 +389,17 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         #return np.zeros(y.size)
         return 0
     
-    def _initialize_thresholds(y):
+    def _initialize_thresholds(y, n_class = None, laplace_smoothing = False):
         # Calculate the initial threshold vector
         n_samples = len(y)
-        n_class = np.max(y) + 1
-        P = np.array([np.sum(y == i) for i in range(n_class)]) / n_samples
+        
+        if not n_class:
+            n_class = np.max(y) + 1
+        else:
+            if np.max(y) + 1 > n_class:
+                raise ValueError('Number of classes cannot be smaller than number of distinct values in y')
+        
+        P = np.array([np.sum(y == i) + laplace_smoothing for i in range(n_class)]) / (n_samples + laplace_smoothing * n_class)
         return norm.ppf(np.cumsum(P[:-1]))
     
     def _pad_thresholds(theta):
