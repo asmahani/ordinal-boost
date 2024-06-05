@@ -382,8 +382,8 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         else:
             return []
     
-    def _initialize(y):
-        return (BoostedOrdinal._initialize_g(y), BoostedOrdinal._initialize_thresholds(y))
+    def _initialize(y, **kwargs):
+        return (BoostedOrdinal._initialize_g(y), BoostedOrdinal._initialize_thresholds(y, **kwargs))
     
     def _initialize_g(y):
         #return np.zeros(y.size)
