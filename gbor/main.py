@@ -125,8 +125,15 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
                 if ((loss_holdout_all[-(1+self.n_iter_no_change)] - loss_holdout_all[-1]) / loss_holdout_all[-(1+self.n_iter_no_change)] < self.reltol):
                     no_change = True
                     break
+
+        n_iter_no_change = self.n_iter_no_change
+        self.n_iter_no_change = None
+        self.max_iter = p + 1 - n_iter_no_change if no_change else self.max_iter
+        self.fit(X, y)
+        self.path['loss_holdout'] = np.array(loss_holdout_all[:(self.max_iter + 1)]) / X.shape[0]
+        self.n_iter_no_change = n_iter_no_change
         
-        return loss_holdout_all
+        return self
     
     def fit(self, X, y):
         """
