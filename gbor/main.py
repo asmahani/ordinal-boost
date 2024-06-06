@@ -348,6 +348,35 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         x = np.diff(loss)
         return (x[::2], x[1::2]) # (g, theta)
     
+    def _validate_ordinal_2(arr, n_class = None):
+    
+        if not isinstance(arr, np.ndarray):
+            raise ValueError("Input must be a numpy array")
+        if arr.dtype.kind not in {'i', 'u'}:
+            raise ValueError("Input array must contain integers")
+        
+        unique_values = np.unique(arr) # we rely on numpy.unique returning a sorted array
+        min_value, max_value = unique_values[0], unique_values[-1]
+    
+        if min_value < 0:
+            raise ValueError("Minimum of arr cannot be less than 0")
+    
+        if not n_class:
+            check_gap = True
+            n_class = max_value + 1
+        else:
+            check_gap = False
+        
+        if max_value >= n_class:
+            raise ValueError("Maximum of arr cannot be more than n_class-1")
+        
+        expected_values = np.arange(n_class)
+        
+        if check_gap:
+            if not np.array_equal(expected_values, unique_values):
+                raise ValueError("Unique values in arr have gaps")
+    
+        return [np.where(arr == m) for m in expected_values]
     
     def _validate_ordinal(arr):
         """
