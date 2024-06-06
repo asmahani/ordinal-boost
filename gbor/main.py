@@ -62,6 +62,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         , n_iter_no_change = None
         , reltol = 1e-2
         , validation_stratify = True
+        , n_class = None
     ):
         self.base_learner = base_learner
         self.max_iter = max_iter
@@ -71,6 +72,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         self.n_iter_no_change = n_iter_no_change
         self.reltol = reltol
         self.validation_stratify = validation_stratify
+        self.n_class = n_class
 
     def fit(self, X, y):
         """
@@ -94,9 +96,10 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         if self.n_iter_no_change:
             X, X_holdout, y, y_holdout = train_test_split(X, y, test_size = self.validation_fraction, stratify = y if self.validation_stratify else None)
         
-        ylist = BoostedOrdinal._validate_ordinal(y)
+        #ylist = BoostedOrdinal._validate_ordinal(y)
+        ylist = BoostedOrdinal._validate_ordinal_2(y, n_class = self.n_class)
 
-        g_init, theta_init = BoostedOrdinal._initialize(y)
+        g_init, theta_init = BoostedOrdinal._initialize(y, n_class = self.n_class, laplace_smoothing = True)
         loss_init = BoostedOrdinal._loss_function(X, y, g_init, theta_init)
 
         g, theta, loss = g_init, theta_init, loss_init
