@@ -54,7 +54,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
     
     def __init__(
         self
-        , base_learner = DecisionTreeRegressor()
+        , base_learner = DecisionTreeRegressor(max_depth=3)
         , max_iter=100
         , lr_g = 1e-1
         , lr_theta = 1e-3
@@ -63,7 +63,6 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         , reltol = 1e-2
         , validation_stratify = True
         , n_class = None
-        , cv = None
     ):
         self.base_learner = base_learner
         self.max_iter = max_iter
@@ -74,7 +73,6 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         self.reltol = reltol
         self.validation_stratify = validation_stratify
         self.n_class = n_class
-        self.cv = cv
 
     def fit(self, X, y):
         """
@@ -96,8 +94,6 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         X, y = check_X_y(X, y)
 
         if self.n_iter_no_change:
-            if self.cv:
-                return self.fit_cv(X, y)
             X, X_holdout, y, y_holdout = train_test_split(X, y, test_size = self.validation_fraction, stratify = y if self.validation_stratify else None)
         
         #ylist = BoostedOrdinal._validate_ordinal(y)
@@ -181,7 +177,6 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
             , 'learner': learner_all
             , 'intercept': np.array(intercept_all)
             , 'lr_theta': np.array(lr_theta_all)
-            #, 'lr_g': np.array(lr_g_all)
         }
         if self.n_iter_no_change:
             self.path['loss_holdout'] = np.array(loss_all_holdout) / X_holdout.shape[0]
