@@ -76,6 +76,65 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         self.n_class = n_class
         self.cv = cv
 
+    def fit_cv(self, X, y):
+        ncv = self.cv
+        kf = KFold(n_splits = ncv, shuffle = True)
+        cv_indices = [x for x in kf.split(X)]
+        if self.n_class:
+            n_class = self.n_class
+        else:
+            n_class = np.max(y) + 1
+
+        ylist_list = [BoostedOrdinal._validate_ordinal_2(y[train_index], n_class = n_class) for train_index, _ in cv_indices]
+        #g_theta_init_list = [BoostedOrdinal._initialize(y[train_index], n_class = n_class, laplace_smoothing = True) for train_index, _ in cv_indices]
+        g_init_list, theta_init_list = zip(*[BoostedOrdinal._initialize(y[train_index], n_class = n_class, laplace_smoothing = True) for train_index, _ in cv_indices])
+        
+        g_list, theta_list = g_init_list, theta_init_list
+        g_holdout = np.empty(len(y))
+        for k, (train_index, test_index) in enumerate(cv_indices):
+            g_holdout[test_index] = g_init_list[k]
+        
+        loss_holdout = sum([BoostedOrdinal._loss_function(X[test_index, :], y[test_index], g_holdout[test_index], theta_list[k]) for k, (train_index, test_index) in enumerate(cv_indices)])
+        loss_holdout_all = [loss_holdout]
+        
+        no_change = False
+        lr_theta_list = list(np.repeat(self.lr_theta, ncv))
+
+        for p in range(self.max_iter):
+            # update regression function
+            dg_list = [BoostedOrdinal._derivative_g(X[train_index, :], y[train_index], theta_list[k], g_list[k]) for k, (train_index, test_index) in enumerate(cv_indices)]
+            weak_learner_list, h_list, intercept_list = zip(*[BoostedOrdinal._fit_weak_learner(X[train_index, :], -dg_list[k], clone(self.base_learner)) for k, (train_index, test_index) in enumerate(cv_indices)])
+            g_list = [BoostedOrdinal._update_g(g_list[k], h_list[k], lr = self.lr_g) for k, (train_index, test_index) in enumerate(cv_indices)]
+            
+            # update holdout loss
+            h_holdout = np.empty(len(y))
+            for k, (train_index, test_index) in enumerate(cv_indices):
+                h_holdout[test_index] = weak_learner_list[k].predict(X[test_index, :]) + intercept_list[k]
+            g_holdout = BoostedOrdinal._update_g(g_holdout, h_holdout, lr = self.lr_g)
+            loss_holdout = sum([BoostedOrdinal._loss_function(X[test_index, :], y[test_index], g_holdout[test_index], theta_list[k]) for k, (train_index, test_index) in enumerate(cv_indices)])
+            
+            # update threshold vector
+            dtheta_list = [BoostedOrdinal._derivative_threshold(X[train_index, :], ylist_list[k], theta_list[k], g_list[k]) for k, (train_index, test_index) in enumerate(cv_indices)]
+            theta_list, lr_theta_list = zip(*[BoostedOrdinal._update_thresh(theta_list[k], dtheta_list[k], lr_theta_list[k], X[train_index, :], y[train_index], g_list[k], frac = 0.5) for k, (train_index, test_index) in enumerate(cv_indices)])
+            # update loss
+            loss_holdout = sum([BoostedOrdinal._loss_function(X[test_index, :], y[test_index], g_holdout[test_index], theta_list[k]) for k, (train_index, test_index) in enumerate(cv_indices)])
+            loss_holdout_all.append(loss_holdout)
+            
+            # check for change in holdout loss
+            if len(loss_holdout_all) > self.n_iter_no_change:
+                if ((loss_holdout_all[-(1+self.n_iter_no_change)] - loss_holdout_all[-1]) / loss_holdout_all[-(1+self.n_iter_no_change)] < self.reltol):
+                    no_change = True
+                    break
+
+        n_iter_no_change = self.n_iter_no_change
+        self.n_iter_no_change = None
+        self.max_iter = p + 1 - n_iter_no_change if no_change else self.max_iter
+        self.fit(X, y)
+        self.path['loss_holdout'] = np.array(loss_holdout_all[:(self.max_iter + 1)]) / X.shape[0]
+        self.n_iter_no_change = n_iter_no_change
+        
+        return self
+    
     def fit(self, X, y):
         """
         Fit the BoostedOrdinal model according to the given training data.
