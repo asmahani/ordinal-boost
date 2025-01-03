@@ -183,9 +183,9 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         
         return self
     
-    def predict(self, X, y = None, path = False, class_labels = True):
+    def predict(self, X, y=None, path=False, class_labels=True):
         """
-        Predict ordinal class labels for the given data.
+        Predict ordinal class labels or probabilities for the given data.
 
         Parameters
         ----------
@@ -193,7 +193,7 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
             The input samples.
             
         y : array-like of shape (n_samples,), optional
-            The true labels for X. If provided, log-likleihood of data is also returned
+            The true labels for X. If provided, log-likelihood of the data is also calculated.
             
         path : bool, default=False
             If True, returns the prediction path (step-by-step predictions from all boosting iterations).
@@ -205,34 +205,33 @@ class BoostedOrdinal(BaseEstimator, ClassifierMixin):
         Returns
         -------
         array-like
-            Predicted class labels or probabilities for the input data. However, 1) if y is provided, a tuple is returned, with the second element being the log-liklihood of the data; 2) if 'path' is set to True, a list of such objects is returned.
+            Predicted class labels or probabilities for the input data. If `y` is provided, 
+            a tuple containing the predictions and log-likelihood of the data is returned. 
+            If `path` is True, a list of such outputs is returned for each boosting iteration.
         """
         check_array(X)
-        arr = np.array([learner.predict(X) + self.path['intercept'][p] for p, learner in enumerate(self.path['learner'])])
+        cumulative_predictions = np.array([
+            learner.predict(X) + self.path['intercept'][p] 
+            for p, learner in enumerate(self.path['learner'])
+        ])
+        
         if path:
-            arr = np.cumsum(arr, 0) * self.lr_g + self.init['g']
+            cumulative_predictions = np.cumsum(cumulative_predictions, axis=0) * self.lr_g + self.init['g']
+            predictions = [
+                BoostedOrdinal._probabilities(cumulative_predictions[p], self.path['theta'][p + 1], y)
+                for p in range(cumulative_predictions.shape[0])
+            ]
             if class_labels:
-                tmp = [BoostedOrdinal._probabilities(arr[p, :], self.path['theta'][p+1], y) for p in range(arr.shape[0])]
-                if class_labels:
-                    if y is None:
-                        return [BoostedOrdinal._class_labels(u) for u in tmp]
-                    else:
-                        return [(BoostedOrdinal._class_labels(u[0]), u[1]) for u in tmp]
-                else:
-                    return tmp
+                return [BoostedOrdinal._class_labels(pred[0] if y is not None else pred) for pred in predictions]
             else:
-                return [BoostedOrdinal._probabilities(arr[p, :], self.path['theta'][p+1], y) for p in range(arr.shape[0])]
+                return predictions
         else:
-            arr = np.sum(arr[:self.n_iter, :], 0) * self.lr_g + self.init['g']
-            tmp = BoostedOrdinal._probabilities(arr, self.path['theta'][-1], y)
+            final_predictions = np.sum(cumulative_predictions[:self.n_iter], axis=0) * self.lr_g + self.init['g']
+            final_probs = BoostedOrdinal._probabilities(final_predictions, self.path['theta'][-1], y)
             if class_labels:
-                if y is None:
-                    return BoostedOrdinal._class_labels(tmp)
-                else:
-                    return BoostedOrdinal._class_labels(tmp[0]), tmp[1]
-                    
+                return BoostedOrdinal._class_labels(final_probs[0] if y is not None else final_probs)
             else:
-                return tmp
+                return final_probs
 
     def predict_proba(self, X):
         """
